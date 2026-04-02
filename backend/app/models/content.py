@@ -10,10 +10,10 @@ from sqlalchemy import (
     DateTime,
     Float,
     Integer,
+    JSON,
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -48,7 +48,8 @@ class Content(Base):
     body_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # 추출된 키워드 목록
-    keywords: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
+    # JSON 배열로 저장 (SQLite 호환)
+    keywords: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     # 감성 분석 결과 (positive, negative, neutral)
     sentiment: Mapped[str | None] = mapped_column(String(10), nullable=True)
@@ -69,8 +70,9 @@ class Content(Base):
     view_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     # 추가 메타데이터 (JSON)
+    # JSON 객체로 저장 (SQLite 호환)
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True
+        "metadata", JSON, nullable=True
     )
 
     # 댓글 관계 (1:N)

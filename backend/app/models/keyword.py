@@ -11,10 +11,10 @@ from sqlalchemy import (
     DateTime,
     Float,
     Integer,
+    JSON,
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -70,6 +70,7 @@ class CollectionJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # 추가 메타데이터
+    # JSON 객체로 저장 (SQLite 호환)
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True
+        "metadata", JSON, nullable=True
     )

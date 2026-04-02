@@ -13,10 +13,10 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.db.session import (
-    close_redis,
+    close_cache,
     dispose_engine,
+    init_cache,
     init_engine,
-    init_redis,
 )
 
 # 라우터 import
@@ -32,18 +32,26 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """애플리케이션 시작/종료 시 리소스를 초기화/정리한다."""
 
-    # 시작: DB 엔진 및 Redis 초기화
+    # 시작: DB 엔진 및 캐시 초기화
     logger.info("데이터베이스 엔진을 초기화합니다.")
     init_engine()
 
-    logger.info("Redis 클라이언트를 초기화합니다.")
-    init_redis()
+    # SQLite 사용 시 테이블 자동 생성
+    from app.db.session import engine as db_engine
+    from app.models.base import Base
+    if db_engine and "sqlite" in str(db_engine.url):
+        async with db_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("SQLite 테이블을 생성했습니다.")
+
+    logger.info("In-Memory 캐시를 초기화합니다.")
+    init_cache()
 
     yield
 
     # 종료: 리소스 정리
-    logger.info("Redis 연결을 닫습니다.")
-    await close_redis()
+    logger.info("캐시를 정리합니다.")
+    await close_cache()
 
     logger.info("데이터베이스 엔진을 종료합니다.")
     await dispose_engine()

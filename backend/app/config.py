@@ -17,11 +17,8 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # 데이터베이스 연결 URL (PostgreSQL + asyncpg)
-    DATABASE_URL: str
-
-    # Redis 연결 URL
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # 데이터베이스 연결 URL (SQLite + aiosqlite)
+    DATABASE_URL: str = "sqlite+aiosqlite:///data/contents_researcher.db"
 
     # YouTube Data API 키
     YOUTUBE_API_KEY: str = ""

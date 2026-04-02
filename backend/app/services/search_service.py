@@ -46,8 +46,8 @@ class SearchService:
 
         # 키워드 검색 (제목 또는 본문에서 ILIKE)
         if request.query:
-            keyword_filter = Content.title.ilike(f"%{request.query}%") | Content.body.ilike(
-                f"%{request.query}%"
+            keyword_filter = Content.title.like(f"%{request.query}%") | Content.body.like(
+                f"%{request.query}%",
             )
             filters.append(keyword_filter)
 
