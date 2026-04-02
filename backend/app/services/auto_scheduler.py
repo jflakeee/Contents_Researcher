@@ -54,7 +54,12 @@ async def _collection_loop(source: str, interval: int) -> None:
             from app.services.collection_service import run_collection
 
             logger.info("[스케줄러] %s 수집 실행 중...", source)
-            result = await run_collection(source=source, query="")
+
+            # 수집 타임아웃 60초 — 무한 대기 방지
+            result = await asyncio.wait_for(
+                run_collection(source=source, query=""),
+                timeout=60.0,
+            )
 
             if result["error"]:
                 logger.warning(
@@ -70,6 +75,8 @@ async def _collection_loop(source: str, interval: int) -> None:
                     result["saved"],
                 )
 
+        except asyncio.TimeoutError:
+            logger.warning("[스케줄러] %s 수집 타임아웃 (60초 초과)", source)
         except Exception as e:
             logger.error("[스케줄러] %s 수집 오류: %s", source, e)
 
