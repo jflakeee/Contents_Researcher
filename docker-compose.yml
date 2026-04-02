@@ -1,18 +1,15 @@
 # =============================================================================
 # Contents Researcher - Docker Compose 설정
 # =============================================================================
-# 이 파일은 프로젝트에 필요한 인프라 서비스를 정의합니다.
-# 실행 방법: docker compose up -d
-# 종료 방법: docker compose down
+# 전체 서비스 일괄 실행: docker compose up -d
+# 종료: docker compose down
 # 데이터 초기화 포함 종료: docker compose down -v
+# 로그 확인: docker compose logs -f
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
   # TimescaleDB (PostgreSQL 16 기반 시계열 데이터베이스)
-  # ---------------------------------------------------------------------------
-  # - 콘텐츠 메타데이터 및 시계열 분석 데이터 저장용
-  # - 환경변수 DB_PASSWORD는 .env 파일에서 로드됨
   # ---------------------------------------------------------------------------
   db:
     image: timescale/timescaledb:latest-pg16
@@ -21,24 +18,20 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: contents_researcher        # 기본 데이터베이스 이름
-      POSTGRES_USER: cr_user                  # 데이터베이스 사용자
-      POSTGRES_PASSWORD: ${DB_PASSWORD}       # .env 파일에서 비밀번호 로드
+      POSTGRES_DB: contents_researcher
+      POSTGRES_USER: cr_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
     volumes:
-      - pgdata:/var/lib/postgresql/data       # 데이터 영속성을 위한 볼륨 마운트
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      # pg_isready를 사용하여 PostgreSQL 연결 가능 여부 확인
       test: ["CMD-SHELL", "pg_isready -U cr_user -d contents_researcher"]
-      interval: 10s    # 10초마다 헬스체크 실행
-      timeout: 5s      # 5초 내에 응답 없으면 실패
-      retries: 5       # 5회 연속 실패 시 unhealthy 상태
-      start_period: 30s # 컨테이너 시작 후 30초간 헬스체크 유예
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # Redis (인메모리 캐시 및 메시지 브로커)
-  # ---------------------------------------------------------------------------
-  # - API 응답 캐싱, 작업 큐, 세션 관리 등에 사용
-  # - Alpine 기반 경량 이미지 사용
+  # Redis (캐시 + 작업 큐 + 중복 체크)
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
@@ -47,20 +40,62 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redisdata:/data                       # RDB/AOF 스냅샷 영속성을 위한 볼륨
+      - redisdata:/data
     healthcheck:
-      # redis-cli ping으로 Redis 서버 응답 확인
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s    # 10초마다 헬스체크 실행
-      timeout: 5s      # 5초 내에 응답 없으면 실패
-      retries: 5       # 5회 연속 실패 시 unhealthy 상태
-      start_period: 10s # 컨테이너 시작 후 10초간 헬스체크 유예
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # 백엔드 API (FastAPI)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: cr_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cr_user:${DB_PASSWORD:-password}@db:5432/contents_researcher
+      REDIS_URL: redis://redis:6379/0
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000"]'
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r=httpx.get('http://localhost:8000/'); assert r.status_code==200"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # 프론트엔드 (Next.js)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    container_name: cr_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      API_HOST: backend
+    depends_on:
+      backend:
+        condition: service_healthy
 
 # =============================================================================
-# Docker 볼륨 정의
-# =============================================================================
-# 컨테이너가 삭제되어도 데이터가 유지되도록 Named Volume 사용
+# Docker 볼륨
 # =============================================================================
 volumes:
-  pgdata:       # TimescaleDB 데이터 저장용 볼륨
-  redisdata:    # Redis 스냅샷 저장용 볼륨
+  pgdata:
+  redisdata:
