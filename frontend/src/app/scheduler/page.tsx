@@ -298,7 +298,7 @@ export default function SchedulerPage() {
                         <Button
                           variant="destructive"
                           size="sm"
-                          onClick={() => deleteMutation.mutate(job.id || (job as Record<string, string>).job_id)}
+                          onClick={() => deleteMutation.mutate(job.id)}
                           disabled={deleteMutation.isPending || !job.id}
                         >
                           삭제
