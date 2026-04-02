@@ -267,8 +267,8 @@ export default function SchedulerPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {schedulerJobs.map((job: ScheduleJob) => (
-                    <TableRow key={job.id}>
+                  {schedulerJobs.map((job: ScheduleJob, idx: number) => (
+                    <TableRow key={job.id ?? idx}>
                       <TableCell className="font-medium">{job.source}</TableCell>
                       <TableCell className="font-mono text-sm">
                         {job.cron_expression}
@@ -297,8 +297,8 @@ export default function SchedulerPage() {
                         <Button
                           variant="destructive"
                           size="sm"
-                          onClick={() => deleteMutation.mutate(job.id)}
-                          disabled={deleteMutation.isPending}
+                          onClick={() => deleteMutation.mutate(job.id || (job as Record<string, string>).job_id)}
+                          disabled={deleteMutation.isPending || !job.id}
                         >
                           삭제
                         </Button>
@@ -400,8 +400,8 @@ export default function SchedulerPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {crawlerHistory.map((job: CollectionJob) => (
-                    <TableRow key={job.id}>
+                  {crawlerHistory.map((job: CollectionJob, idx: number) => (
+                    <TableRow key={job.id ?? idx}>
                       <TableCell className="font-medium">{job.source}</TableCell>
                       <TableCell>
                         <Badge
