@@ -1,10 +1,12 @@
 """
-aggag.com HTML 파서
+aagag.com HTML 파서
 
-Playwright로 가져온 HTML에서 게시글과 댓글 데이터를 추출한다.
+aagag.com의 게시글 목록과 상세 페이지에서 데이터를 추출한다.
+URL 패턴: /issue/?idx=숫자
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -15,47 +17,68 @@ from shared.types import Comment, ContentItem
 
 logger = logging.getLogger(__name__)
 
+# aagag.com 기본 URL
+BASE_URL = "https://aagag.com"
 
-def parse_post_list(html: str, base_url: str) -> List[Dict[str, str]]:
+
+def parse_post_list(html: str, base_url: str = BASE_URL) -> List[Dict[str, str]]:
     """게시글 목록 페이지에서 게시글 링크와 제목 추출
 
     Args:
         html: 게시글 목록 페이지 HTML
-        base_url: aggag.com 기본 URL
+        base_url: 기본 URL
 
     Returns:
-        [{"url": "...", "title": "...", "source_id": "..."}] 형태의 목록
+        [{"url": "...", "title": "...", "source_id": "..."}]
     """
     soup = BeautifulSoup(html, "html.parser")
     posts = []
+    seen = set()
 
-    # 게시글 목록 항목 탐색
-    # aggag.com의 실제 HTML 구조에 맞게 셀렉터 조정 필요
-    for article in soup.select("article, .post-item, .board-item, tr.list-item"):
-        link_tag = article.select_one("a[href]")
-        if not link_tag:
+    # aagag.com 패턴: a[href*="idx="] 태그
+    for a_tag in soup.select('a[href*="idx="]'):
+        href = a_tag.get("href", "")
+        if not href:
             continue
 
-        href = link_tag.get("href", "")
-        title = link_tag.get_text(strip=True)
+        # idx 파라미터 추출
+        idx_match = re.search(r'idx=(\d+)', href)
+        if not idx_match:
+            continue
 
-        # 상대 경로를 절대 경로로 변환
+        source_id = idx_match.group(1)
+        if source_id in seen:
+            continue
+        seen.add(source_id)
+
+        # 제목: a 태그 내 span.title 또는 a 태그 텍스트
+        title_el = a_tag.select_one('span.title')
+        if title_el:
+            title = title_el.get_text(strip=True)
+        else:
+            title = a_tag.get_text(strip=True)
+
+        # 제목에서 파일 크기/조회수 등 불필요한 접미사 제거
+        title = re.sub(r'[\d.]+\s*[KMGT]?B\d+\d+.*$', '', title).strip()
+
+        if not title:
+            continue
+
+        # 절대 URL 생성
         if href.startswith("/"):
-            href = base_url.rstrip("/") + href
-        elif not href.startswith("http"):
-            href = base_url.rstrip("/") + "/" + href
+            full_url = base_url.rstrip("/") + href
+        elif href.startswith("http"):
+            full_url = href
+        else:
+            full_url = base_url.rstrip("/") + "/" + href
 
-        # 게시글 ID 추출 (URL에서)
-        source_id = _extract_post_id(href)
+        posts.append({
+            "url": full_url,
+            "title": title,
+            "source_id": source_id,
+        })
 
-        if title and href:
-            posts.append({
-                "url": href,
-                "title": title,
-                "source_id": source_id,
-            })
-
-    logger.info("aggag 게시글 목록 파싱: %d건", len(posts))
+    logger.info("aagag 게시글 목록 파싱: %d건", len(posts))
     return posts
 
 
@@ -65,75 +88,63 @@ def parse_post_detail(html: str, url: str, source_id: str) -> ContentItem:
     Args:
         html: 게시글 상세 페이지 HTML
         url: 게시글 URL
-        source_id: 게시글 고유 ID
+        source_id: 게시글 idx
 
     Returns:
         파싱된 ContentItem
     """
     soup = BeautifulSoup(html, "html.parser")
-
-    # 제목 추출
-    title = _extract_text(soup, [
-        "h1.post-title",
-        "h1.article-title",
-        ".board-title h1",
-        "h1",
-    ])
-
-    # 본문 추출
-    body = _extract_text(soup, [
-        ".post-content",
-        ".article-body",
-        ".board-content",
-        ".content-area",
-        "article",
-    ])
-
-    # 조회수 추출
-    view_count = _extract_number(soup, [
-        ".view-count",
-        ".hit-count",
-        ".views",
-    ])
-
-    # 좋아요 수 추출
-    like_count = _extract_number(soup, [
-        ".like-count",
-        ".recommend-count",
-        ".likes",
-    ])
-
-    # 작성일 추출
-    date_text = _extract_text(soup, [
-        ".post-date",
-        ".article-date",
-        "time",
-        ".date",
-    ])
-
-    # 메타데이터
     metadata: Dict[str, Any] = {}
-    if date_text:
-        metadata["original_date"] = date_text
 
-    # 작성자 추출
-    author = _extract_text(soup, [
-        ".post-author",
-        ".article-author",
-        ".nickname",
-        ".writer",
-    ])
-    if author:
-        metadata["author"] = author
+    # 제목: h1 또는 span.title
+    title = ""
+    h1 = soup.select_one("h1")
+    if h1:
+        title = h1.get_text(strip=True)
+    if not title:
+        span_title = soup.select_one("span.title")
+        if span_title:
+            title = span_title.get_text(strip=True)
+            # 파일 크기 등 접미사 제거
+            title = re.sub(r'[\d.]+\s*[KMGT]?B\d+.*$', '', title).strip()
+
+    # 본문: div.view_content 또는 div.content
+    body = ""
+    for sel in [".view_content", ".content", ".article", "#content"]:
+        body_el = soup.select_one(sel)
+        if body_el and len(body_el.get_text(strip=True)) > 10:
+            body = body_el.get_text(strip=True)
+            break
+
+    # 조회수: .hit
+    view_count = 0
+    hit_el = soup.select_one(".hit")
+    if hit_el:
+        numbers = re.findall(r'\d+', hit_el.get_text().replace(",", ""))
+        if numbers:
+            view_count = int(numbers[0])
+
+    # 좋아요: .good
+    like_count = 0
+    good_el = soup.select_one(".good")
+    if good_el:
+        numbers = re.findall(r'\d+', good_el.get_text().replace(",", ""))
+        if numbers:
+            like_count = int(numbers[0])
+
+    # 댓글 수: .comment 영역 내 댓글 개수
+    comment_els = soup.select(".icomment .cmt_memo, .comment .cmt_memo")
+    comment_count = len(comment_els)
 
     return ContentItem(
         source=SOURCE_AGGAG,
         source_url=url,
         source_id=source_id,
-        title=title or "제목 없음",
+        title=title or f"aagag #{source_id}",
         body=body,
         view_count=view_count,
         like_count=like_count,
+        comment_count=comment_count,
         metadata=metadata,
         collected_at=datetime.now(tz=timezone.utc),
     )
@@ -151,109 +162,34 @@ def parse_comments(html: str) -> List[Comment]:
     soup = BeautifulSoup(html, "html.parser")
     comments = []
 
-    # 댓글 목록 탐색
-    for comment_el in soup.select(
-        ".comment-item, .reply-item, .comment-list li, .cmt-item"
-    ):
-        author = _extract_text(comment_el, [
-            ".comment-author",
-            ".reply-author",
-            ".nickname",
-            ".writer",
-        ]) or "익명"
+    # aagag.com 댓글: .icomment 내부 .cmt_memo
+    for cmt_el in soup.select(".icomment .cmt_memo, .comment .cmt_memo"):
+        body = cmt_el.get_text(strip=True)
+        if not body or len(body) < 2:
+            continue
 
-        body = _extract_text(comment_el, [
-            ".comment-body",
-            ".comment-content",
-            ".reply-content",
-            ".cmt-content",
-        ])
+        # 작성자: 인접 요소에서 탐색
+        author = ""
+        parent = cmt_el.parent
+        if parent:
+            nick_el = parent.select_one(".nick, .nickname, .name")
+            if nick_el:
+                author = nick_el.get_text(strip=True)
 
-        like_count = _extract_number(comment_el, [
-            ".comment-like",
-            ".reply-like",
-            ".like-count",
-        ])
+        # 좋아요
+        like_count = 0
+        if parent:
+            like_el = parent.select_one(".good, .like, .recommend")
+            if like_el:
+                nums = re.findall(r'\d+', like_el.get_text())
+                if nums:
+                    like_count = int(nums[0])
 
-        if body:
-            comments.append(Comment(
-                author=author,
-                body=body,
-                like_count=like_count,
-            ))
+        comments.append(Comment(
+            author=author or "익명",
+            body=body,
+            like_count=like_count,
+        ))
 
-    logger.info("aggag 댓글 파싱: %d건", len(comments))
+    logger.info("aagag 댓글 파싱: %d건", len(comments))
     return comments
-
-
-def _extract_text(
-    soup: BeautifulSoup, selectors: List[str]
-) -> str:
-    """여러 CSS 셀렉터 중 첫 번째 매칭 요소의 텍스트 반환
-
-    Args:
-        soup: BeautifulSoup 객체
-        selectors: 시도할 CSS 셀렉터 목록
-
-    Returns:
-        추출된 텍스트 (없으면 빈 문자열)
-    """
-    for selector in selectors:
-        element = soup.select_one(selector)
-        if element:
-            return element.get_text(strip=True)
-    return ""
-
-
-def _extract_number(
-    soup: BeautifulSoup, selectors: List[str]
-) -> int:
-    """여러 CSS 셀렉터 중 첫 번째 매칭 요소에서 숫자 추출
-
-    Args:
-        soup: BeautifulSoup 객체
-        selectors: 시도할 CSS 셀렉터 목록
-
-    Returns:
-        추출된 숫자 (없으면 0)
-    """
-    import re
-
-    text = _extract_text(soup, selectors)
-    if text:
-        numbers = re.findall(r"\d+", text.replace(",", ""))
-        if numbers:
-            return int(numbers[0])
-    return 0
-
-
-def _extract_post_id(url: str) -> str:
-    """URL에서 게시글 ID 추출
-
-    Args:
-        url: 게시글 URL
-
-    Returns:
-        게시글 ID 문자열
-    """
-    import re
-    from urllib.parse import urlparse, parse_qs
-
-    # URL 쿼리 파라미터에서 ID 추출 시도
-    parsed = urlparse(url)
-    params = parse_qs(parsed.query)
-    for key in ["id", "no", "idx", "seq", "document_srl"]:
-        if key in params:
-            return params[key][0]
-
-    # URL 경로에서 숫자 ID 추출 시도
-    numbers = re.findall(r"/(\d+)", parsed.path)
-    if numbers:
-        return numbers[-1]
-
-    # 마지막 경로 세그먼트 사용
-    path_parts = parsed.path.rstrip("/").split("/")
-    if path_parts:
-        return path_parts[-1]
-
-    return url

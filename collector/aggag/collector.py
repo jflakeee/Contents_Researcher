@@ -20,14 +20,17 @@ from collector.aggag.parser import parse_post_list, parse_post_detail, parse_com
 
 logger = logging.getLogger(__name__)
 
-# aggag.com 기본 URL
-BASE_URL = "https://aggag.com"
+# aagag.com 기본 URL
+BASE_URL = "https://aagag.com"
 
 # 요청 간 딜레이 (초) — rate limiting
-REQUEST_DELAY = 2.0
+REQUEST_DELAY = 1.0
 
 # 한 번에 수집할 최대 페이지 수
-MAX_PAGES = 5
+MAX_PAGES = 1
+
+# 페이지당 상세 수집할 최대 게시글 수
+MAX_DETAIL_PER_PAGE = 10
 
 # HTTP 요청 타임아웃 (초)
 REQUEST_TIMEOUT = 15.0
@@ -103,9 +106,9 @@ class AggagCollector(BaseCollector):
                 try:
                     # 검색 또는 최신 목록 URL 구성
                     if query:
-                        list_url = f"{self._base_url}/search?q={query}&page={page_num}"
+                        list_url = f"{self._base_url}/issue/?search={query}&page={page_num}"
                     else:
-                        list_url = f"{self._base_url}?page={page_num}"
+                        list_url = f"{self._base_url}/issue/?page={page_num}"
 
                     logger.info("aggag 목록 수집: %s", list_url)
 
@@ -119,8 +122,8 @@ class AggagCollector(BaseCollector):
                         logger.info("aggag 페이지 %d: 게시글 없음, 수집 종료", page_num)
                         break
 
-                    # 각 게시글 상세 수집
-                    for post_info in post_list:
+                    # 각 게시글 상세 수집 (최대 MAX_DETAIL_PER_PAGE건)
+                    for post_info in post_list[:MAX_DETAIL_PER_PAGE]:
                         try:
                             await asyncio.sleep(self._request_delay)
                             detail_resp = await client.get(post_info["url"])
