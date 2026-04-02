@@ -43,7 +43,7 @@ class CollectionJob(Base):
     __tablename__ = "collection_jobs"
 
     # 기본 키
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
     # 수집 대상 출처
     source: Mapped[str | None] = mapped_column(String(50), nullable=True)

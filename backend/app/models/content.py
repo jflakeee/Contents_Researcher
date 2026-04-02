@@ -25,7 +25,7 @@ class Content(Base):
     __tablename__ = "contents"
 
     # 기본 키
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
     # 수집 시각
     collected_at: Mapped[datetime] = mapped_column(

@@ -25,11 +25,11 @@ class Comment(Base):
     __tablename__ = "comments"
 
     # 기본 키
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
     # 소속 콘텐츠 외래 키
     content_id: Mapped[int] = mapped_column(
-        BigInteger,
+        Integer,
         ForeignKey("contents.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
