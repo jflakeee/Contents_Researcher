@@ -45,7 +45,7 @@ async def create_schedule_job(
 
     job_id = str(uuid4())
     job_data = {
-        "job_id": job_id,
+        "id": job_id,
         "source": request.source,
         "cron_expression": request.cron_expression,
         "query": request.query,
@@ -80,7 +80,7 @@ async def update_schedule_job(
         raise HTTPException(status_code=404, detail="스케줄을 찾을 수 없습니다.")
 
     job_data = {
-        "job_id": job_id,
+        "id": job_id,
         "source": request.source,
         "cron_expression": request.cron_expression,
         "query": request.query,
@@ -115,4 +115,4 @@ async def delete_schedule_job(
     await cache.delete(f"{_SCHEDULE_KEY_PREFIX}{job_id}")
     await cache.srem(_SCHEDULE_INDEX_KEY, job_id)
 
-    return {"message": "스케줄이 삭제되었습니다.", "job_id": job_id}
+    return {"message": "스케줄이 삭제되었습니다.", "id": job_id}

@@ -145,8 +145,8 @@ export async function triggerCrawler(
   query?: string,
   dateFrom?: string,
   dateTo?: string
-): Promise<{ job_id: number }> {
-  return fetchAPI<{ job_id: number }>(`/api/v1/crawler/trigger`, {
+): Promise<{ id: number }> {
+  return fetchAPI<{ id: number }>(`/api/v1/crawler/trigger`, {
     method: "POST",
     body: JSON.stringify({
       source,

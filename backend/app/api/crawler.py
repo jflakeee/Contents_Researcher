@@ -48,7 +48,7 @@ async def trigger_crawler(
     )
 
     return {
-        "job_id": job.id,
+        "id": job.id,
         "status": job.status,
         "source": job.source,
         "message": "수집 작업이 시작되었습니다.",
@@ -77,7 +77,7 @@ async def get_crawler_status(
 
     return [
         {
-            "job_id": job.id,
+            "id": job.id,
             "source": job.source,
             "status": job.status,
             "started_at": job.started_at.isoformat() if job.started_at else None,
@@ -104,7 +104,7 @@ async def get_crawler_history(
 
     return [
         {
-            "job_id": job.id,
+            "id": job.id,
             "source": job.source,
             "status": job.status,
             "started_at": job.started_at.isoformat() if job.started_at else None,

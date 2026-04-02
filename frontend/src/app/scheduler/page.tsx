@@ -358,7 +358,7 @@ export default function SchedulerPage() {
             {/* 수집 성공 메시지 */}
             {triggerMutation.isSuccess && (
               <p className="mt-3 text-sm text-green-600">
-                수집이 시작되었습니다. (작업 ID: {triggerMutation.data?.job_id})
+                수집이 시작되었습니다. (작업 ID: {triggerMutation.data?.id})
               </p>
             )}
             {/* 수집 에러 메시지 */}
