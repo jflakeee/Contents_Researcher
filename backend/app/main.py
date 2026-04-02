@@ -6,6 +6,7 @@ FastAPI 애플리케이션 엔트리포인트.
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
 # 프로젝트 루트를 PYTHONPATH에 추가 (shared, collector, analyzer 모듈 접근용)
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -53,6 +54,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     logger.info("In-Memory 캐시를 초기화합니다.")
     init_cache()
+
+    # 서버 시작 시 방치된 running/pending 작업을 failed로 정리
+    from app.db.session import async_session_factory
+    if async_session_factory:
+        from sqlalchemy import update
+        from app.models.keyword import CollectionJob
+        async with async_session_factory() as session:
+            await session.execute(
+                update(CollectionJob)
+                .where(CollectionJob.status.in_(["running", "pending"]))
+                .values(
+                    status="failed",
+                    error_message="interrupted by server restart",
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            await session.commit()
+        logger.info("방치된 수집 작업을 정리했습니다.")
 
     # 자동 수집 스케줄러 시작
     from app.services.auto_scheduler import start_auto_scheduler, stop_auto_scheduler
