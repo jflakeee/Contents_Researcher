@@ -21,26 +21,11 @@ router = APIRouter(prefix="/api/v1/crawler", tags=["crawler"])
 async def trigger_crawler(
     request: CrawlerTriggerRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """크롤러 수집 작업을 생성하고 백그라운드에서 실행한다."""
+    """크롤러 수집 작업을 백그라운드에서 시작한다.
+    job은 collection_service 내부에서 생성/관리된다."""
 
-    # 새 수집 작업 레코드 생성
-    job = CollectionJob(
-        source=request.source,
-        status="running",
-        started_at=datetime.now(tz=timezone.utc),
-        metadata_={
-            "query": request.query,
-            "date_from": request.date_from.isoformat() if request.date_from else None,
-            "date_to": request.date_to.isoformat() if request.date_to else None,
-        },
-    )
-    db.add(job)
-    await db.flush()
-    await db.refresh(job)
-
-    # 백그라운드에서 실제 수집 실행
+    # 백그라운드에서 실제 수집 실행 (job 생성 포함)
     background_tasks.add_task(
         _run_collection_task,
         source=request.source,
@@ -48,9 +33,8 @@ async def trigger_crawler(
     )
 
     return {
-        "id": job.id,
-        "status": job.status,
-        "source": job.source,
+        "source": request.source,
+        "status": "running",
         "message": "수집 작업이 시작되었습니다.",
     }
 

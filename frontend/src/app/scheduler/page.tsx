@@ -77,7 +77,7 @@ export default function SchedulerPage() {
     queryFn: getSchedulerJobs,
   });
 
-  // ─── 수집 이력 조회 ────────────────────────────────────────
+  // ─── 수집 이력 조회 (5초 간격 자동 갱신) ────────────────────
   const {
     data: crawlerHistory,
     isLoading: isLoadingHistory,
@@ -85,6 +85,7 @@ export default function SchedulerPage() {
   } = useQuery({
     queryKey: ["crawlerHistory"],
     queryFn: getCrawlerHistory,
+    refetchInterval: 5000,
   });
 
   // ─── 스케줄 생성 뮤테이션 ──────────────────────────────────

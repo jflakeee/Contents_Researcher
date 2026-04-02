@@ -35,38 +35,42 @@ async def run_collection(
 
     Args:
         source: 수집 출처 (youtube, aggag, instagram)
-        query: 검색 키워드 (빈 문자열이면 최신 게시글)
+        query: 검색 키워드
         date_from: 수집 시작일
         date_to: 수집 종료일
 
     Returns:
-        {"source": str, "collected": int, "saved": int, "error": str|None}
+        {"source": str, "collected": int, "saved": int, "job_id": int|None, "error": str|None}
     """
-    result = {"source": source, "collected": 0, "saved": 0, "error": None}
+    result = {"source": source, "collected": 0, "saved": 0, "job_id": None, "error": None}
+
+    # 수집 시작 — DB에 running 상태로 job 생성
+    job_id = await _create_job(source, query)
+    result["job_id"] = job_id
 
     try:
-        # 1단계: 수집기 생성 및 수집 실행
+        # 1단계: 수집기 생성
         collector = _create_collector(source)
         if collector is None:
-            result["error"] = f"지원하지 않는 출처: {source}"
+            result["error"] = f"unsupported source: {source}"
+            await _update_job(job_id, status="failed", error=result["error"])
             return result
 
         logger.info("[%s] 수집 시작: query='%s'", source, query)
-        collection_result = await collector.run(query, date_from, date_to)
 
-        if not collection_result.success:
-            result["error"] = collection_result.error_message
-            return result
-
-        # collector.run()은 items를 반환하지 않으므로 직접 수집
+        # 2단계: 컨텐츠 수집
         items = await collector.collect(query, date_from, date_to)
         result["collected"] = len(items)
 
+        # 수집 건수 실시간 업데이트
+        await _update_job(job_id, items_count=len(items))
+
         if not items:
             logger.info("[%s] 수집 결과 0건", source)
+            await _update_job(job_id, status="completed", items_count=0)
             return result
 
-        # 댓글 수집 + 해시 생성
+        # 3단계: 댓글 수집 + 해시 생성
         for item in items:
             try:
                 comments = await collector.collect_comments(item.source_id)
@@ -77,7 +81,7 @@ async def run_collection(
             except Exception as e:
                 logger.warning("[%s] 댓글 수집 실패 (%s): %s", source, item.source_id, e)
 
-        # 2단계: NLP 분석
+        # 4단계: NLP 분석
         logger.info("[%s] NLP 분석 시작: %d건", source, len(items))
         try:
             from analyzer.pipeline import AnalysisPipeline
@@ -86,20 +90,87 @@ async def run_collection(
         except Exception as e:
             logger.warning("[%s] NLP 분석 실패 (분석 없이 저장 진행): %s", source, e)
 
-        # 3단계: DB 저장
+        # 5단계: DB 저장
         saved_count = await _save_to_db(items)
         result["saved"] = saved_count
-        logger.info("[%s] 수집 완료: 수집=%d, 저장=%d", source, len(items), saved_count)
 
-        # 4단계: 수집 이력 기록
-        await _record_job(source, len(items), saved_count)
+        # 완료 상태 업데이트
+        await _update_job(job_id, status="completed", items_count=saved_count)
+        logger.info("[%s] 수집 완료: 수집=%d, 저장=%d", source, len(items), saved_count)
 
     except Exception as e:
         result["error"] = str(e)
         logger.error("[%s] 수집 파이프라인 오류: %s", source, e)
-        await _record_job(source, 0, 0, error=str(e))
+        await _update_job(job_id, status="failed", error=str(e))
 
     return result
+
+
+async def _create_job(source: str, query: str = "") -> Optional[int]:
+    """수집 작업을 running 상태로 DB에 생성하고 ID를 반환"""
+    from app.db.session import async_session_factory
+    from app.models.keyword import CollectionJob
+
+    if async_session_factory is None:
+        return None
+
+    try:
+        async with async_session_factory() as session:
+            job = CollectionJob(
+                source=source,
+                status="running",
+                started_at=datetime.now(tz=timezone.utc),
+                items_count=0,
+                metadata_={"query": query},
+            )
+            session.add(job)
+            await session.flush()
+            job_id = job.id
+            await session.commit()
+            return job_id
+    except Exception as e:
+        logger.warning("수집 job 생성 실패: %s", e)
+        return None
+
+
+async def _update_job(
+    job_id: Optional[int],
+    status: Optional[str] = None,
+    items_count: Optional[int] = None,
+    error: Optional[str] = None,
+) -> None:
+    """수집 작업 상태를 실시간 업데이트"""
+    if job_id is None:
+        return
+
+    from app.db.session import async_session_factory
+    from app.models.keyword import CollectionJob
+    from sqlalchemy import update
+
+    if async_session_factory is None:
+        return
+
+    try:
+        values = {}
+        if status is not None:
+            values["status"] = status
+        if items_count is not None:
+            values["items_count"] = items_count
+        if error is not None:
+            values["error_message"] = error
+        if status in ("completed", "failed"):
+            values["completed_at"] = datetime.now(tz=timezone.utc)
+
+        if values:
+            async with async_session_factory() as session:
+                await session.execute(
+                    update(CollectionJob)
+                    .where(CollectionJob.id == job_id)
+                    .values(**values)
+                )
+                await session.commit()
+    except Exception as e:
+        logger.warning("수집 job 업데이트 실패 (id=%s): %s", job_id, e)
 
 
 def _create_collector(source: str):
@@ -110,7 +181,7 @@ def _create_collector(source: str):
             from app.config import get_settings
             settings = get_settings()
             if not settings.YOUTUBE_API_KEY:
-                logger.warning("YouTube API 키가 설정되지 않았습니다")
+                logger.warning("YouTube API key not configured")
                 return None
             return YouTubeCollector(api_key=settings.YOUTUBE_API_KEY)
 
@@ -123,28 +194,21 @@ def _create_collector(source: str):
             return InstagramCollector()
 
         else:
-            logger.warning("지원하지 않는 출처: %s", source)
+            logger.warning("unsupported source: %s", source)
             return None
     except ImportError as e:
-        logger.error("수집기 모듈 로드 실패 (%s): %s", source, e)
+        logger.error("collector module load failed (%s): %s", source, e)
         return None
 
 
 async def _save_to_db(items: list[ContentItem]) -> int:
-    """수집/분석된 컨텐츠를 DB에 저장
-
-    Args:
-        items: 분석 완료된 ContentItem 목록
-
-    Returns:
-        저장된 건수
-    """
+    """수집/분석된 컨텐츠를 DB에 저장"""
     from app.db.session import async_session_factory
     from app.models.content import Content
     from app.models.comment import Comment
 
     if async_session_factory is None:
-        logger.error("DB 세션 팩토리가 초기화되지 않았습니다")
+        logger.error("DB session factory not initialized")
         return 0
 
     saved = 0
@@ -158,10 +222,9 @@ async def _save_to_db(items: list[ContentItem]) -> int:
                         select(Content.id).where(Content.body_hash == item.body_hash)
                     )
                     if existing.scalar_one_or_none() is not None:
-                        logger.debug("중복 건너뜀: %s", item.title[:30])
+                        logger.debug("duplicate skipped: %s", item.title[:30])
                         continue
 
-                # Content 레코드 생성
                 content = Content(
                     collected_at=item.collected_at,
                     source=item.source,
@@ -181,7 +244,6 @@ async def _save_to_db(items: list[ContentItem]) -> int:
                 session.add(content)
                 await session.flush()
 
-                # Comment 레코드 생성
                 for c in item.comments:
                     comment = Comment(
                         content_id=content.id,
@@ -197,38 +259,8 @@ async def _save_to_db(items: list[ContentItem]) -> int:
                 saved += 1
 
             except Exception as e:
-                logger.warning("DB 저장 실패 (%s): %s", item.title[:30], e)
+                logger.warning("DB save failed (%s): %s", item.title[:30], e)
 
         await session.commit()
 
     return saved
-
-
-async def _record_job(
-    source: str,
-    collected: int,
-    saved: int,
-    error: Optional[str] = None,
-) -> None:
-    """수집 작업 이력을 DB에 기록"""
-    from app.db.session import async_session_factory
-    from app.models.keyword import CollectionJob
-
-    if async_session_factory is None:
-        return
-
-    try:
-        async with async_session_factory() as session:
-            job = CollectionJob(
-                source=source,
-                status="failed" if error else "completed",
-                started_at=datetime.now(tz=timezone.utc),
-                completed_at=datetime.now(tz=timezone.utc),
-                items_count=saved,
-                error_message=error,
-                metadata_={"collected": collected, "saved": saved},
-            )
-            session.add(job)
-            await session.commit()
-    except Exception as e:
-        logger.warning("수집 이력 기록 실패: %s", e)
