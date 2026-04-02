@@ -1,14 +1,17 @@
 """
 aggag.com 수집기
 
-Playwright를 사용하여 aggag.com의 전체 게시판에서
-게시글과 댓글을 스크래핑한다.
+httpx + BeautifulSoup을 사용하여 aggag.com의 전체 게시판에서
+게시글과 댓글을 수집한다.
+(Playwright 대신 httpx 사용 — Python 3.14 Windows 호환)
 """
 
 import asyncio
 import logging
 from datetime import datetime
 from typing import List, Optional
+
+import httpx
 
 from shared.constants import SOURCE_AGGAG
 from shared.types import Comment, ContentItem
@@ -24,16 +27,24 @@ BASE_URL = "https://aggag.com"
 REQUEST_DELAY = 2.0
 
 # 한 번에 수집할 최대 페이지 수
-MAX_PAGES = 10
+MAX_PAGES = 5
 
-# 페이지당 최대 게시글 수
-MAX_POSTS_PER_PAGE = 30
+# HTTP 요청 타임아웃 (초)
+REQUEST_TIMEOUT = 15.0
+
+# User-Agent 헤더
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
 
 
 class AggagCollector(BaseCollector):
     """aggag.com 수집기
 
-    Playwright로 동적 페이지를 렌더링하여 게시글과 댓글을 수집한다.
+    httpx로 HTTP 요청을 보내고 BeautifulSoup으로 HTML을 파싱하여
+    게시글과 댓글을 수집한다.
     전체 게시판을 대상으로 수집하며, rate limiting을 적용한다.
     """
 
@@ -44,7 +55,6 @@ class AggagCollector(BaseCollector):
         base_url: str = BASE_URL,
         request_delay: float = REQUEST_DELAY,
         max_pages: int = MAX_PAGES,
-        headless: bool = True,
     ):
         """초기화
 
@@ -52,40 +62,22 @@ class AggagCollector(BaseCollector):
             base_url: aggag.com 기본 URL
             request_delay: 요청 간 딜레이 (초)
             max_pages: 최대 수집 페이지 수
-            headless: 브라우저 헤드리스 모드 여부
         """
         self._base_url = base_url
         self._request_delay = request_delay
         self._max_pages = max_pages
-        self._headless = headless
-        self._browser = None
-        self._context = None
 
-    async def _ensure_browser(self):
-        """Playwright 브라우저 초기화 (지연 초기화)"""
-        if self._browser is None:
-            from playwright.async_api import async_playwright
-            self._playwright = await async_playwright().start()
-            self._browser = await self._playwright.chromium.launch(
-                headless=self._headless
-            )
-            self._context = await self._browser.new_context(
-                locale="ko-KR",
-                timezone_id="Asia/Seoul",
-            )
-            logger.info("aggag 수집기: Playwright 브라우저 초기화 완료")
-
-    async def _close_browser(self):
-        """브라우저 종료"""
-        if self._context:
-            await self._context.close()
-            self._context = None
-        if self._browser:
-            await self._browser.close()
-            self._browser = None
-        if hasattr(self, "_playwright") and self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
+    def _create_client(self) -> httpx.AsyncClient:
+        """HTTP 클라이언트 생성"""
+        return httpx.AsyncClient(
+            timeout=REQUEST_TIMEOUT,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+            },
+            follow_redirects=True,
+        )
 
     async def collect(
         self,
@@ -95,73 +87,65 @@ class AggagCollector(BaseCollector):
     ) -> List[ContentItem]:
         """aggag.com 게시글 수집
 
-        전체 게시판에서 최신 게시글을 수집한다.
-        query 파라미터가 있으면 검색, 없으면 최신 목록에서 수집.
-
         Args:
             query: 검색 키워드 (빈 문자열이면 최신 목록)
-            date_from: 수집 시작일 (참고용, 서버사이드 필터 제한적)
+            date_from: 수집 시작일
             date_to: 수집 종료일
 
         Returns:
             수집된 ContentItem 목록
         """
-        await self._ensure_browser()
         items: List[ContentItem] = []
 
-        try:
-            page = await self._context.new_page()
-
+        async with self._create_client() as client:
             # 게시글 목록 수집 (페이지네이션)
             for page_num in range(1, self._max_pages + 1):
-                # 검색 또는 최신 목록 URL 구성
-                if query:
-                    list_url = f"{self._base_url}/search?q={query}&page={page_num}"
-                else:
-                    list_url = f"{self._base_url}?page={page_num}"
+                try:
+                    # 검색 또는 최신 목록 URL 구성
+                    if query:
+                        list_url = f"{self._base_url}/search?q={query}&page={page_num}"
+                    else:
+                        list_url = f"{self._base_url}?page={page_num}"
 
-                logger.info("aggag 목록 수집: %s", list_url)
+                    logger.info("aggag 목록 수집: %s", list_url)
 
-                await page.goto(list_url, wait_until="networkidle")
-                html = await page.content()
+                    response = await client.get(list_url)
+                    response.raise_for_status()
+                    html = response.text
 
-                # 게시글 목록 파싱
-                post_list = parse_post_list(html, self._base_url)
-                if not post_list:
-                    logger.info("aggag 페이지 %d: 게시글 없음, 수집 종료", page_num)
+                    # 게시글 목록 파싱
+                    post_list = parse_post_list(html, self._base_url)
+                    if not post_list:
+                        logger.info("aggag 페이지 %d: 게시글 없음, 수집 종료", page_num)
+                        break
+
+                    # 각 게시글 상세 수집
+                    for post_info in post_list:
+                        try:
+                            await asyncio.sleep(self._request_delay)
+                            detail_resp = await client.get(post_info["url"])
+                            detail_resp.raise_for_status()
+
+                            content_item = parse_post_detail(
+                                detail_resp.text,
+                                post_info["url"],
+                                post_info["source_id"],
+                            )
+                            items.append(content_item)
+
+                        except Exception as e:
+                            logger.warning(
+                                "aggag 게시글 수집 실패 (%s): %s",
+                                post_info["url"],
+                                str(e),
+                            )
+
+                    # 페이지 간 딜레이
+                    await asyncio.sleep(self._request_delay)
+
+                except Exception as e:
+                    logger.warning("aggag 페이지 %d 수집 실패: %s", page_num, str(e))
                     break
-
-                # 각 게시글 상세 수집
-                for post_info in post_list:
-                    try:
-                        await asyncio.sleep(self._request_delay)
-                        await page.goto(post_info["url"], wait_until="networkidle")
-                        detail_html = await page.content()
-
-                        # 상세 페이지 파싱
-                        content_item = parse_post_detail(
-                            detail_html,
-                            post_info["url"],
-                            post_info["source_id"],
-                        )
-                        items.append(content_item)
-
-                    except Exception as e:
-                        logger.warning(
-                            "aggag 게시글 수집 실패 (%s): %s",
-                            post_info["url"],
-                            str(e),
-                        )
-
-                # 페이지 간 딜레이
-                await asyncio.sleep(self._request_delay)
-
-            await page.close()
-
-        except Exception as e:
-            logger.error("aggag 수집 중 오류: %s", str(e))
-        finally:
-            await self._close_browser()
 
         logger.info("aggag 수집 완료: %d건", len(items))
         return items
@@ -169,38 +153,23 @@ class AggagCollector(BaseCollector):
     async def collect_comments(self, content_id: str) -> List[Comment]:
         """게시글 댓글 수집
 
-        collect() 과정에서 이미 댓글을 파싱하므로,
-        별도 호출 시에는 해당 게시글 페이지를 다시 방문하여 댓글을 추출한다.
-
         Args:
             content_id: 게시글 ID 또는 URL
 
         Returns:
             Comment 목록
         """
-        await self._ensure_browser()
-        comments: List[Comment] = []
+        # content_id가 URL인 경우와 ID인 경우 모두 처리
+        if content_id.startswith("http"):
+            url = content_id
+        else:
+            url = f"{self._base_url}/post/{content_id}"
 
         try:
-            page = await self._context.new_page()
-
-            # content_id가 URL인 경우와 ID인 경우 모두 처리
-            if content_id.startswith("http"):
-                url = content_id
-            else:
-                url = f"{self._base_url}/post/{content_id}"
-
-            await page.goto(url, wait_until="networkidle")
-            html = await page.content()
-            comments = parse_comments(html)
-
-            await page.close()
-
+            async with self._create_client() as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                return parse_comments(response.text)
         except Exception as e:
-            logger.warning(
-                "aggag 댓글 수집 실패 (content_id=%s): %s", content_id, str(e)
-            )
-        finally:
-            await self._close_browser()
-
-        return comments
+            logger.warning("aggag 댓글 수집 실패 (content_id=%s): %s", content_id, str(e))
+            return []
