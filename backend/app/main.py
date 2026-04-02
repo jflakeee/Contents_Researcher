@@ -47,7 +47,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("In-Memory 캐시를 초기화합니다.")
     init_cache()
 
+    # 자동 수집 스케줄러 시작
+    from app.services.auto_scheduler import start_auto_scheduler, stop_auto_scheduler
+    start_auto_scheduler()
+
     yield
+
+    # 종료: 자동 수집 스케줄러 정지
+    stop_auto_scheduler()
 
     # 종료: 리소스 정리
     logger.info("캐시를 정리합니다.")

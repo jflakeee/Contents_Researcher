@@ -3,9 +3,10 @@
 수집 작업 트리거, 상태 확인, 이력 조회 엔드포인트를 제공한다.
 """
 
+import asyncio
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,14 +20,15 @@ router = APIRouter(prefix="/api/v1/crawler", tags=["crawler"])
 @router.post("/trigger")
 async def trigger_crawler(
     request: CrawlerTriggerRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """크롤러 수집 작업을 생성(트리거)한다."""
+    """크롤러 수집 작업을 생성하고 백그라운드에서 실행한다."""
 
     # 새 수집 작업 레코드 생성
     job = CollectionJob(
         source=request.source,
-        status="pending",
+        status="running",
         started_at=datetime.now(tz=timezone.utc),
         metadata_={
             "query": request.query,
@@ -38,12 +40,25 @@ async def trigger_crawler(
     await db.flush()
     await db.refresh(job)
 
+    # 백그라운드에서 실제 수집 실행
+    background_tasks.add_task(
+        _run_collection_task,
+        source=request.source,
+        query=request.query or "",
+    )
+
     return {
         "job_id": job.id,
         "status": job.status,
         "source": job.source,
-        "message": "수집 작업이 생성되었습니다.",
+        "message": "수집 작업이 시작되었습니다.",
     }
+
+
+async def _run_collection_task(source: str, query: str) -> None:
+    """백그라운드에서 수집 파이프라인을 실행하는 태스크"""
+    from app.services.collection_service import run_collection
+    await run_collection(source=source, query=query)
 
 
 @router.get("/status")
