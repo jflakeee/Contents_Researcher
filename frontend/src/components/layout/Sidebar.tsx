@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 /** 사이드바 메뉴 항목 정의 */
 const menuItems = [
@@ -56,11 +57,12 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* 하단 정보 */}
-      <div className="border-t px-6 py-3">
-        <p className="text-xs text-muted-foreground">
-          Contents Researcher v1.0
-        </p>
+      {/* 하단: 테마 토글 + 버전 */}
+      <div className="border-t px-4 py-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">v1.0</p>
+          <ThemeToggle />
+        </div>
       </div>
     </aside>
   );

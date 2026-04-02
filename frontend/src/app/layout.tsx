@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Noto_Sans_KR } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/lib/query-provider";
+import { ThemeProvider } from "@/lib/theme-provider";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -32,18 +33,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" className={`${notoSansKR.variable} h-full antialiased`}>
+    <html lang="ko" className={`${notoSansKR.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="flex h-full min-h-screen">
-        <QueryProvider>
-          <TooltipProvider>
-            {/* 사이드바 네비게이션 */}
-            <Sidebar />
-            {/* 메인 컨텐츠 영역 */}
-            <main className="flex-1 overflow-y-auto bg-background p-6">
-              {children}
-            </main>
-          </TooltipProvider>
-        </QueryProvider>
+        <ThemeProvider>
+          <QueryProvider>
+            <TooltipProvider>
+              {/* 사이드바 네비게이션 */}
+              <Sidebar />
+              {/* 메인 컨텐츠 영역 */}
+              <main className="flex-1 overflow-y-auto bg-background p-6">
+                {children}
+              </main>
+            </TooltipProvider>
+          </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
