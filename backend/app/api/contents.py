@@ -22,12 +22,41 @@ from app.services.search_service import SearchService
 router = APIRouter(prefix="/api/v1/contents", tags=["contents"])
 
 
+@router.get("", response_model=PaginatedResponse[ContentSummary])
+async def list_contents(
+    query: str | None = Query(default=None, description="검색 키워드"),
+    sources: str | None = Query(default=None, description="출처 필터 (쉼표 구분)"),
+    sentiment: str | None = Query(default=None, description="감성 필터"),
+    date_from: str | None = Query(default=None, description="시작일 (YYYY-MM-DD)"),
+    date_to: str | None = Query(default=None, description="종료일 (YYYY-MM-DD)"),
+    sort_by: str = Query(default="collected_at", description="정렬 기준"),
+    sort_order: str = Query(default="desc", description="정렬 순서"),
+    page: int = Query(default=1, ge=1, description="페이지 번호"),
+    page_size: int = Query(default=20, ge=1, le=100, description="페이지 크기"),
+    db: AsyncSession = Depends(get_db),
+) -> PaginatedResponse[ContentSummary]:
+    """GET 쿼리 파라미터로 콘텐츠를 검색한다. (프론트엔드 호출용)"""
+    from datetime import date as date_type
+    request = SearchRequest(
+        query=query or None,
+        sources=sources.split(",") if sources else None,
+        sentiment=sentiment or None,
+        date_from=date_type.fromisoformat(date_from) if date_from else None,
+        date_to=date_type.fromisoformat(date_to) if date_to else None,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page,
+        page_size=page_size,
+    )
+    return await SearchService.search(db, request)
+
+
 @router.post("/search", response_model=PaginatedResponse[ContentSummary])
 async def search_contents(
     request: SearchRequest,
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedResponse[ContentSummary]:
-    """검색 조건에 맞는 콘텐츠 목록을 반환한다."""
+    """POST JSON body로 콘텐츠를 검색한다."""
     return await SearchService.search(db, request)
 
 
