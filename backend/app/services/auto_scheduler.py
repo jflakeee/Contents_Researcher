@@ -55,10 +55,11 @@ async def _collection_loop(source: str, interval: int) -> None:
 
             logger.info("[스케줄러] %s 수집 실행 중...", source)
 
-            # 수집 타임아웃 60초 — 무한 대기 방지
+            # 수집 타임아웃 — Instagram(Playwright)은 120초, 나머지 60초
+            timeout = 120.0 if source == SOURCE_INSTAGRAM else 60.0
             result = await asyncio.wait_for(
                 run_collection(source=source, query=""),
-                timeout=60.0,
+                timeout=timeout,
             )
 
             if result["error"]:
@@ -121,14 +122,14 @@ def start_auto_scheduler() -> None:
     else:
         logger.info("[스케줄러] YouTube API 키 미설정 — 수집 비활성화")
 
-    # Instagram — 항상 활성화
+    # Instagram — Playwright sync API를 to_thread로 실행
     tasks.append(
         asyncio.create_task(
             _collection_loop(SOURCE_INSTAGRAM, _DEFAULT_INTERVALS[SOURCE_INSTAGRAM]),
             name=f"collector-{SOURCE_INSTAGRAM}",
         )
     )
-    logger.info("[스케줄러] Instagram 수집 등록 (12시간 주기)")
+    logger.info("[스케줄러] Instagram 수집 등록 (12시간 주기, Playwright)")
 
     logger.info("[스케줄러] 자동 수집 스케줄러 시작 완료 (%d개 출처)", len(tasks))
 
