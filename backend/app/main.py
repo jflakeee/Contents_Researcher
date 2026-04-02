@@ -28,7 +28,7 @@ from app.db.session import (
 
 # 라우터 import
 from app.api.contents import router as contents_router
-from app.api.keywords import router as keywords_router
+from app.api.keywords import router as keywords_router, sources_router
 from app.api.crawler import router as crawler_router
 from app.api.scheduler import router as scheduler_router
 
@@ -95,6 +95,7 @@ def create_app() -> FastAPI:
     # 라우터 등록
     app.include_router(contents_router)
     app.include_router(keywords_router)
+    app.include_router(sources_router)
     app.include_router(crawler_router)
     app.include_router(scheduler_router)
 

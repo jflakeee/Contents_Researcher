@@ -11,6 +11,18 @@ from app.services.trend_service import TrendService
 
 router = APIRouter(prefix="/api/v1/keywords", tags=["keywords"])
 
+# === 출처별 통계 (프론트엔드 대시보드에서 사용) ===
+# /api/v1/sources/stats 경로지만 같은 라우터에서 제공
+sources_router = APIRouter(prefix="/api/v1/sources", tags=["sources"])
+
+
+@sources_router.get("/stats")
+async def get_source_stats(
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """출처별 수집 통계를 반환한다."""
+    return await TrendService.get_source_stats(db)
+
 
 @router.get("/top")
 async def get_top_keywords(
