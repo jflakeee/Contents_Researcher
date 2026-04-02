@@ -1,0 +1,10 @@
+[project]
+name = "contents-researcher-analyzer"
+version = "0.1.0"
+description = "NLP 분석기 - 키워드 추출, 감성 분석, 중요도 산정"
+requires-python = ">=3.12"
+dependencies = [
+    "kiwipiepy>=0.18",
+    "keybert>=0.8",
+    "sentence-transformers>=2.2",
+]

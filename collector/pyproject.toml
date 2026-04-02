@@ -1,0 +1,14 @@
+[project]
+name = "contents-researcher-collector"
+version = "0.1.0"
+description = "컨텐츠 수집기 - 멀티 플랫폼 크롤러"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "playwright>=1.40",
+    "google-api-python-client>=2.100",
+    "redis[hiredis]>=5.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+]

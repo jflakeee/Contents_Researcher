@@ -1,0 +1,66 @@
+# =============================================================================
+# Contents Researcher - Docker Compose 설정
+# =============================================================================
+# 이 파일은 프로젝트에 필요한 인프라 서비스를 정의합니다.
+# 실행 방법: docker compose up -d
+# 종료 방법: docker compose down
+# 데이터 초기화 포함 종료: docker compose down -v
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # TimescaleDB (PostgreSQL 16 기반 시계열 데이터베이스)
+  # ---------------------------------------------------------------------------
+  # - 콘텐츠 메타데이터 및 시계열 분석 데이터 저장용
+  # - 환경변수 DB_PASSWORD는 .env 파일에서 로드됨
+  # ---------------------------------------------------------------------------
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: cr_timescaledb
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: contents_researcher        # 기본 데이터베이스 이름
+      POSTGRES_USER: cr_user                  # 데이터베이스 사용자
+      POSTGRES_PASSWORD: ${DB_PASSWORD}       # .env 파일에서 비밀번호 로드
+    volumes:
+      - pgdata:/var/lib/postgresql/data       # 데이터 영속성을 위한 볼륨 마운트
+    healthcheck:
+      # pg_isready를 사용하여 PostgreSQL 연결 가능 여부 확인
+      test: ["CMD-SHELL", "pg_isready -U cr_user -d contents_researcher"]
+      interval: 10s    # 10초마다 헬스체크 실행
+      timeout: 5s      # 5초 내에 응답 없으면 실패
+      retries: 5       # 5회 연속 실패 시 unhealthy 상태
+      start_period: 30s # 컨테이너 시작 후 30초간 헬스체크 유예
+
+  # ---------------------------------------------------------------------------
+  # Redis (인메모리 캐시 및 메시지 브로커)
+  # ---------------------------------------------------------------------------
+  # - API 응답 캐싱, 작업 큐, 세션 관리 등에 사용
+  # - Alpine 기반 경량 이미지 사용
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: cr_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data                       # RDB/AOF 스냅샷 영속성을 위한 볼륨
+    healthcheck:
+      # redis-cli ping으로 Redis 서버 응답 확인
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s    # 10초마다 헬스체크 실행
+      timeout: 5s      # 5초 내에 응답 없으면 실패
+      retries: 5       # 5회 연속 실패 시 unhealthy 상태
+      start_period: 10s # 컨테이너 시작 후 10초간 헬스체크 유예
+
+# =============================================================================
+# Docker 볼륨 정의
+# =============================================================================
+# 컨테이너가 삭제되어도 데이터가 유지되도록 Named Volume 사용
+# =============================================================================
+volumes:
+  pgdata:       # TimescaleDB 데이터 저장용 볼륨
+  redisdata:    # Redis 스냅샷 저장용 볼륨
