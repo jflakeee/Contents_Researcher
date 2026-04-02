@@ -4,6 +4,13 @@ FastAPI 애플리케이션 엔트리포인트.
 """
 
 import logging
+import os
+import sys
+
+# 프로젝트 루트를 PYTHONPATH에 추가 (shared, collector, analyzer 모듈 접근용)
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
