@@ -70,9 +70,9 @@ export interface KeywordTrendPoint {
 // 출처별 통계 타입
 export interface SourceStat {
   source: string;
-  total_count: number;
-  today_count: number;
+  content_count: number;
   avg_sentiment: number | null;
+  last_collected_at: string | null;
 }
 
 // 수집 작업 타입

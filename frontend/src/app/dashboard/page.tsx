@@ -139,11 +139,11 @@ export default function DashboardPage() {
                     <CardContent>
                       <div className="text-2xl font-bold">
                         {formatNumber(
-                          sourceStats?.reduce((sum, s) => sum + s.total_count, 0) ?? 0
+                          sourceStats?.reduce((sum, s) => sum + (s.content_count ?? 0), 0) ?? 0
                         )}
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        오늘 +{sourceStats?.reduce((sum, s) => sum + s.today_count, 0) ?? 0}건
+                        총 {sourceStats?.length ?? 0}개 출처
                       </p>
                     </CardContent>
                   </Card>
@@ -157,12 +157,12 @@ export default function DashboardPage() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">
-                          {formatNumber(stat.total_count)}
+                          {formatNumber(stat.content_count)}
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          오늘 +{stat.today_count}건 | 평균 감성{" "}
+                          평균 감성{" "}
                           {stat.avg_sentiment !== null
-                            ? stat.avg_sentiment.toFixed(2)
+                            ? stat.avg_sentiment?.toFixed(2)
                             : "-"}
                         </p>
                       </CardContent>
