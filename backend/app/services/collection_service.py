@@ -52,7 +52,7 @@ async def run_collection(
         # 1단계: 수집기 생성
         collector = _create_collector(source)
         if collector is None:
-            result["error"] = f"unsupported source: {source}"
+            result["error"] = f"collector not available: {source} (API key missing or module error)"
             await _update_job(job_id, status="failed", error=result["error"])
             return result
 
