@@ -9,7 +9,8 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /** 날짜 문자열을 한국어 형식으로 변환 */
-export function formatDate(dateString: string): string {
+export function formatDate(dateString: string | null | undefined): string {
+  if (!dateString) return "-";
   try {
     const date = parseISO(dateString);
     return format(date, "yyyy년 MM월 dd일 HH:mm", { locale: ko });
@@ -19,7 +20,8 @@ export function formatDate(dateString: string): string {
 }
 
 /** 숫자를 축약 형식으로 변환 (1.2K, 3.4M 등) */
-export function formatNumber(num: number): string {
+export function formatNumber(num: number | null | undefined): string {
+  if (num == null) return "0";
   if (num >= 1_000_000) {
     return `${(num / 1_000_000).toFixed(1)}M`;
   }
