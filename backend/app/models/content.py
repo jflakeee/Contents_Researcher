@@ -51,6 +51,9 @@ class Content(Base):
     # JSON 배열로 저장 (SQLite 호환)
     keywords: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
+    # 컨텐츠 유형 분류 (informative=정보성, entertaining=흥미성)
+    content_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # 감성 분석 결과 (positive, negative, neutral)
     sentiment: Mapped[str | None] = mapped_column(String(10), nullable=True)
 

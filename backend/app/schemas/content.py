@@ -35,6 +35,7 @@ class ContentSummary(BaseModel):
     source_url: str
     title: str
     keywords: list[str] | None = None
+    content_type: str | None = None
     sentiment: str | None = None
     sentiment_score: float | None = None
     importance_score: float | None = None

@@ -59,6 +59,30 @@ export function getSentimentLabel(sentiment: string): string {
   }
 }
 
+/** 컨텐츠 유형 한국어 라벨 */
+export function getContentTypeLabel(type: string | null | undefined): string {
+  switch (type) {
+    case "informative":
+      return "정보";
+    case "entertaining":
+      return "흥미";
+    default:
+      return "미분류";
+  }
+}
+
+/** 컨텐츠 유형별 Tailwind 색상 클래스 */
+export function getContentTypeColor(type: string | null | undefined): string {
+  switch (type) {
+    case "informative":
+      return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200";
+    case "entertaining":
+      return "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200";
+    default:
+      return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200";
+  }
+}
+
 /** 출처명에 따른 텍스트 아이콘 반환 */
 export function getSourceIcon(source: string): string {
   switch (source.toLowerCase()) {

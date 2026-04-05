@@ -48,6 +48,8 @@ class ContentItem:
     body_hash: Optional[str] = None
     # 추출된 키워드 목록
     keywords: List[str] = field(default_factory=list)
+    # 컨텐츠 유형 (informative=정보성, entertaining=흥미성)
+    content_type: Optional[str] = None
     # 감성 분류 (positive, negative, neutral)
     sentiment: Optional[str] = None
     # 감성 점수 (-1.0 ~ 1.0)

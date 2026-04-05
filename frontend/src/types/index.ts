@@ -5,6 +5,7 @@ export interface ContentSummary {
   source_url: string;
   title: string;
   keywords: string[];
+  content_type: string | null;
   sentiment: string | null;
   sentiment_score: number | null;
   importance_score: number | null;

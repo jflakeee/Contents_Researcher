@@ -12,6 +12,7 @@ from shared.types import ContentItem
 from analyzer.keywords.extractor import KeywordExtractor
 from analyzer.sentiment.analyzer import SentimentAnalyzer
 from analyzer.importance.scorer import ImportanceScorer
+from analyzer.content_classifier import classify_content
 
 logger = logging.getLogger(__name__)
 
@@ -109,5 +110,9 @@ class AnalysisPipeline:
             comment.sentiment = comment_result.label
             comment.sentiment_score = comment_result.score
 
-        # 4단계: 중요도 산정
+        # 4단계: 컨텐츠 유형 분류 (정보성/흥미성)
+        origin_source = item.metadata.get("origin_source") if item.metadata else None
+        item.content_type = classify_content(item.title, item.keywords, origin_source)
+
+        # 5단계: 중요도 산정
         item.importance_score = self._importance_scorer.score(item)

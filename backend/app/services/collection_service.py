@@ -240,6 +240,7 @@ async def _save_to_db(items: list[ContentItem]) -> int:
                     body=item.body,
                     body_hash=item.body_hash,
                     keywords=item.keywords,
+                    content_type=item.content_type,
                     sentiment=item.sentiment,
                     sentiment_score=item.sentiment_score,
                     importance_score=item.importance_score,
