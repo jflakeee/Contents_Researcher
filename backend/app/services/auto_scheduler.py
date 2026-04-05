@@ -55,8 +55,8 @@ async def _collection_loop(source: str, interval: int) -> None:
 
             logger.info("[스케줄러] %s 수집 실행 중...", source)
 
-            # 수집 타임아웃 — Instagram(Playwright)은 120초, 나머지 60초
-            timeout = 120.0 if source == SOURCE_INSTAGRAM else 60.0
+            # 수집 타임아웃 — Playwright 사용 출처는 120초, 나머지 60초
+            timeout = 120.0 if source in (SOURCE_INSTAGRAM, SOURCE_AGGAG) else 60.0
             result = await asyncio.wait_for(
                 run_collection(source=source, query=""),
                 timeout=timeout,
