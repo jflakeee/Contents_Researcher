@@ -151,8 +151,8 @@ class KeywordExtractor:
         if not nouns:
             return []
 
-        # 중복 제거된 후보 목록
-        candidates = list(set(nouns))
+        # 중복 제거 + 소문자 변환 (sklearn uppercase 경고 방지)
+        candidates = list({n.lower() for n in nouns})
 
         # KeyBERT로 문서와 가장 관련 높은 키워드 선별
         keybert = self._get_keybert()
