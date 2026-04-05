@@ -1,145 +1,225 @@
 """
-자동 수집 스케줄러
+자동 연속 수집 스케줄러
 
-서버 시작 시 백그라운드에서 주기적으로 수집 작업을 실행한다.
-APScheduler 대신 asyncio.Task 기반으로 구현하여 외부 의존성 없이 동작.
+모든 사이트에서 최근 게시물부터 계속 수집한다.
+100건 수집 후 10분 휴식, 이를 무한 반복.
 """
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+import sys
+import os
+from datetime import datetime, timezone
 
 from app.config import get_settings
-from shared.constants import (
-    SOURCE_YOUTUBE,
-    SOURCE_AGGAG,
-    SOURCE_INSTAGRAM,
-    DEFAULT_SCHEDULES,
-)
+
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+import httpx
+from shared.constants import SOURCE_AGGAG, SOURCE_YOUTUBE, SOURCE_INSTAGRAM
 
 logger = logging.getLogger(__name__)
 
-# 스케줄러 백그라운드 태스크
-_scheduler_task: asyncio.Task | None = None
-
-# 수집 주기 (초 단위) — cron 표현식을 초로 변환한 기본값
-_DEFAULT_INTERVALS = {
-    SOURCE_YOUTUBE: 6 * 3600,    # 6시간
-    SOURCE_AGGAG: 3 * 3600,      # 3시간
-    SOURCE_INSTAGRAM: 12 * 3600, # 12시간
-}
-
 # 서버 시작 후 첫 수집까지 대기 시간 (초)
-_INITIAL_DELAY = 30
+_INITIAL_DELAY = 15
+
+# 한 사이클 목표 수집 건수
+_TARGET_PER_CYCLE = 100
+
+# 휴식 시간 (초) — 10분
+_REST_INTERVAL = 10 * 60
+
+# issuelink 수집 설정
+_ISSUELINK_BASE = "https://www.issuelink.co.kr"
+_ISSUELINK_COMMUNITIES = [
+    "all", "theqoo", "fmkorea", "ruliweb", "ppomppu",
+    "todayhumor", "instiz", "bobae", "inven", "slr", "clien",
+]
+_ISSUELINK_HOURS = [3, 6, 12, 24]  # 최근 시간대부터 순회
+_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 
-async def _collection_loop(source: str, interval: int) -> None:
-    """단일 출처의 수집을 반복 실행하는 루프
+async def _continuous_collection_loop() -> None:
+    """모든 사이트에서 연속 수집하는 메인 루프
 
-    Args:
-        source: 수집 출처
-        interval: 반복 주기 (초)
+    1사이클 = issuelink(커뮤니티) + Instagram 수집
+    100건 수집 후 10분 휴식, 무한 반복.
     """
-    # 초기 대기 (서버 완전 기동 후 시작)
     await asyncio.sleep(_INITIAL_DELAY)
+    logger.info("[연속수집] 시작 — 100건 수집 후 10분 휴식 반복")
 
-    logger.info(
-        "[스케줄러] %s 자동 수집 시작 (주기: %d분)",
-        source,
-        interval // 60,
-    )
-
+    cycle = 0
     while True:
+        cycle += 1
+        logger.info("[연속수집] === 사이클 %d 시작 ===", cycle)
+
+        total_collected = 0
+        total_saved = 0
+
         try:
-            from app.services.collection_service import run_collection
+            # 1단계: issuelink (커뮤니티 인기 게시글)
+            c, s = await _collect_issuelink()
+            total_collected += c
+            total_saved += s
 
-            logger.info("[스케줄러] %s 수집 실행 중...", source)
+            # 2단계: Instagram (Playwright, API 키 불필요)
+            c, s = await _collect_instagram()
+            total_collected += c
+            total_saved += s
 
-            # 수집 타임아웃 — Playwright 사용 출처는 120초, 나머지 60초
-            timeout = 120.0 if source in (SOURCE_INSTAGRAM, SOURCE_AGGAG) else 60.0
-            result = await asyncio.wait_for(
-                run_collection(source=source, query=""),
-                timeout=timeout,
-            )
+            # 3단계: YouTube (API 키가 있을 때만)
+            settings = get_settings()
+            if settings.YOUTUBE_API_KEY:
+                c, s = await _collect_youtube()
+                total_collected += c
+                total_saved += s
 
-            if result["error"]:
-                logger.warning(
-                    "[스케줄러] %s 수집 실패: %s",
-                    source,
-                    result["error"],
-                )
-            else:
-                logger.info(
-                    "[스케줄러] %s 수집 완료: 수집=%d, 저장=%d",
-                    source,
-                    result["collected"],
-                    result["saved"],
-                )
-
-        except asyncio.TimeoutError:
-            logger.warning("[스케줄러] %s 수집 타임아웃 (60초 초과)", source)
         except Exception as e:
-            logger.error("[스케줄러] %s 수집 오류: %s", source, e)
+            logger.error("[연속수집] 사이클 %d 오류: %s", cycle, e)
 
-        # 다음 수집까지 대기
         logger.info(
-            "[스케줄러] %s 다음 수집: %d분 후",
-            source,
-            interval // 60,
+            "[연속수집] === 사이클 %d 완료: 수집=%d, 저장=%d ===",
+            cycle, total_collected, total_saved,
         )
-        await asyncio.sleep(interval)
+
+        # 10분 휴식
+        logger.info("[연속수집] 10분 휴식 후 다음 사이클 시작...")
+        await asyncio.sleep(_REST_INTERVAL)
+
+
+async def _collect_issuelink() -> tuple[int, int]:
+    """issuelink.co.kr 커뮤니티 수집
+
+    커뮤니티별 × 시간대별 조합으로 최근 게시물부터 수집.
+    중복 제거하여 DB에 저장.
+
+    Returns:
+        (수집건수, 저장건수)
+    """
+    from collector.aggag.parser import parse_post_list
+    from app.services.collection_service import _save_to_db, _create_job, _update_job
+
+    job_id = await _create_job(SOURCE_AGGAG, "continuous")
+    all_items = []
+    seen_ids = set()
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=15.0,
+            headers={"User-Agent": _USER_AGENT, "Accept-Language": "ko-KR"},
+            follow_redirects=True,
+        ) as client:
+
+            for community in _ISSUELINK_COMMUNITIES:
+                for hours in _ISSUELINK_HOURS:
+                    try:
+                        if community == "all":
+                            url = f"{_ISSUELINK_BASE}/community/listview/all/{hours}/adj/_self/blank/blank/blank"
+                        else:
+                            url = f"{_ISSUELINK_BASE}/community/filterview/{community}/{hours}/adj/_self/blank/blank/blank"
+
+                        response = await client.get(url)
+                        if response.status_code != 200:
+                            continue
+
+                        items = parse_post_list(response.text, _ISSUELINK_BASE)
+                        new = 0
+                        for item in items:
+                            if item.source_id not in seen_ids:
+                                seen_ids.add(item.source_id)
+                                all_items.append(item)
+                                new += 1
+
+                        if new > 0:
+                            logger.info("[issuelink] %s/%dh: +%d건", community, hours, new)
+
+                        await asyncio.sleep(0.5)
+
+                    except Exception as e:
+                        logger.warning("[issuelink] %s/%dh 실패: %s", community, hours, e)
+
+        logger.info("[issuelink] 수집 완료: %d건", len(all_items))
+
+        # NLP 분석
+        try:
+            from analyzer.pipeline import AnalysisPipeline
+            pipeline = AnalysisPipeline()
+            for i in range(0, len(all_items), 50):
+                await pipeline.analyze(all_items[i:i+50])
+        except Exception as e:
+            logger.warning("[issuelink] NLP 분석 실패: %s", e)
+
+        # DB 저장
+        saved = await _save_to_db(all_items)
+        await _update_job(job_id, status="completed", items_count=saved)
+        return len(all_items), saved
+
+    except Exception as e:
+        logger.error("[issuelink] 수집 오류: %s", e)
+        await _update_job(job_id, status="failed", error=str(e))
+        return 0, 0
+
+
+async def _collect_instagram() -> tuple[int, int]:
+    """Instagram 수집 (Playwright)
+
+    Returns:
+        (수집건수, 저장건수)
+    """
+    from app.services.collection_service import run_collection
+
+    try:
+        result = await asyncio.wait_for(
+            run_collection(source=SOURCE_INSTAGRAM, query=""),
+            timeout=120.0,
+        )
+        return result["collected"], result["saved"]
+    except asyncio.TimeoutError:
+        logger.warning("[Instagram] 수집 타임아웃")
+        return 0, 0
+    except Exception as e:
+        logger.warning("[Instagram] 수집 오류: %s", e)
+        return 0, 0
+
+
+async def _collect_youtube() -> tuple[int, int]:
+    """YouTube 수집 (API 키 필요)
+
+    Returns:
+        (수집건수, 저장건수)
+    """
+    from app.services.collection_service import run_collection
+
+    try:
+        result = await asyncio.wait_for(
+            run_collection(source=SOURCE_YOUTUBE, query=""),
+            timeout=60.0,
+        )
+        return result["collected"], result["saved"]
+    except asyncio.TimeoutError:
+        logger.warning("[YouTube] 수집 타임아웃")
+        return 0, 0
+    except Exception as e:
+        logger.warning("[YouTube] 수집 오류: %s", e)
+        return 0, 0
 
 
 def start_auto_scheduler() -> None:
-    """모든 출처의 자동 수집 스케줄러를 시작한다.
-
-    서버 lifespan에서 호출되어 백그라운드 태스크로 실행.
-    YouTube는 API 키가 설정된 경우에만 활성화.
-    """
-    global _scheduler_task
-    settings = get_settings()
-
-    tasks = []
-
-    # aggag.com — 항상 활성화
-    tasks.append(
-        asyncio.create_task(
-            _collection_loop(SOURCE_AGGAG, _DEFAULT_INTERVALS[SOURCE_AGGAG]),
-            name=f"collector-{SOURCE_AGGAG}",
-        )
+    """연속 수집 스케줄러를 시작한다."""
+    asyncio.create_task(
+        _continuous_collection_loop(),
+        name="collector-continuous",
     )
-    logger.info("[스케줄러] aggag.com 수집 등록 (3시간 주기)")
-
-    # YouTube — API 키가 있을 때만
-    if settings.YOUTUBE_API_KEY:
-        tasks.append(
-            asyncio.create_task(
-                _collection_loop(SOURCE_YOUTUBE, _DEFAULT_INTERVALS[SOURCE_YOUTUBE]),
-                name=f"collector-{SOURCE_YOUTUBE}",
-            )
-        )
-        logger.info("[스케줄러] YouTube 수집 등록 (6시간 주기)")
-    else:
-        logger.info("[스케줄러] YouTube API 키 미설정 — 수집 비활성화")
-
-    # Instagram — Playwright sync API를 to_thread로 실행
-    tasks.append(
-        asyncio.create_task(
-            _collection_loop(SOURCE_INSTAGRAM, _DEFAULT_INTERVALS[SOURCE_INSTAGRAM]),
-            name=f"collector-{SOURCE_INSTAGRAM}",
-        )
-    )
-    logger.info("[스케줄러] Instagram 수집 등록 (12시간 주기, Playwright)")
-
-    logger.info("[스케줄러] 자동 수집 스케줄러 시작 완료 (%d개 출처)", len(tasks))
+    logger.info("[연속수집] 스케줄러 등록 완료 (100건 수집 → 10분 휴식 → 반복)")
 
 
 def stop_auto_scheduler() -> None:
-    """모든 수집 태스크를 취소한다."""
+    """수집 태스크를 취소한다."""
     cancelled = 0
     for task in asyncio.all_tasks():
         if task.get_name().startswith("collector-"):
             task.cancel()
             cancelled += 1
-
-    logger.info("[스케줄러] 자동 수집 스케줄러 종료 (%d개 태스크 취소)", cancelled)
+    logger.info("[연속수집] 스케줄러 종료 (%d개 태스크 취소)", cancelled)
