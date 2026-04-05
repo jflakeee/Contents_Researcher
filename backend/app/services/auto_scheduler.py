@@ -64,10 +64,10 @@ async def _continuous_collection_loop() -> None:
             total_collected += c
             total_saved += s
 
-            # 2단계: Instagram (Playwright, API 키 불필요)
-            c, s = await _collect_instagram()
-            total_collected += c
-            total_saved += s
+            # 2단계: Instagram — 추후 적용 예정
+            # c, s = await _collect_instagram()
+            # total_collected += c
+            # total_saved += s
 
             # 3단계: YouTube (API 키가 있을 때만)
             settings = get_settings()

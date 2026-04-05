@@ -215,14 +215,21 @@ async def _save_to_db(items: list[ContentItem]) -> int:
     async with async_session_factory() as session:
         for item in items:
             try:
-                # 중복 체크 (body_hash)
+                from sqlalchemy import select
+
+                # 중복 체크 1: source_url 기준
+                url_exists = await session.execute(
+                    select(Content.id).where(Content.source_url == item.source_url)
+                )
+                if url_exists.scalar_one_or_none() is not None:
+                    continue
+
+                # 중복 체크 2: body_hash 기준 (본문이 있는 경우)
                 if item.body_hash:
-                    from sqlalchemy import select
-                    existing = await session.execute(
+                    hash_exists = await session.execute(
                         select(Content.id).where(Content.body_hash == item.body_hash)
                     )
-                    if existing.scalar_one_or_none() is not None:
-                        logger.debug("duplicate skipped: %s", item.title[:30])
+                    if hash_exists.scalar_one_or_none() is not None:
                         continue
 
                 content = Content(
