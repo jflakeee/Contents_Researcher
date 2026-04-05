@@ -45,6 +45,21 @@ async def _run_collection_task(source: str, query: str) -> None:
     await run_collection(source=source, query=query)
 
 
+@router.post("/bulk")
+async def trigger_bulk_collection(
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """한달 전 ~ 1주 전 게시글 대량 수집을 백그라운드에서 시작한다."""
+    background_tasks.add_task(_run_bulk_task)
+    return {"message": "대량 수집이 시작되었습니다. 수집 이력에서 진행 상황을 확인하세요."}
+
+
+async def _run_bulk_task() -> None:
+    """백그라운드 대량 수집 태스크"""
+    from app.services.bulk_collection import bulk_collect_and_save
+    await bulk_collect_and_save()
+
+
 @router.get("/status")
 async def get_crawler_status(
     db: AsyncSession = Depends(get_db),
