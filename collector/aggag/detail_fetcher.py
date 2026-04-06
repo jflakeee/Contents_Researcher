@@ -194,7 +194,7 @@ def _extract_comments(soup: BeautifulSoup, result: DetailResult, selectors: List
         if elements:
             for el in elements[:50]:  # 최대 50개 댓글
                 text = el.get_text(strip=True)
-                if text and len(text) >= 2:
+                if text and len(text) >= 50:
                     # 작성자 추출 시도
                     parent = el.parent
                     author = ""
