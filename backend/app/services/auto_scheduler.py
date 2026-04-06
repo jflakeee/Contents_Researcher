@@ -184,17 +184,33 @@ async def _collect_instagram() -> tuple[int, int]:
         return 0, 0
 
 
+_YOUTUBE_QUERIES = [
+    "한국 트렌드", "인기 영상", "이슈 뉴스",
+    "리뷰 추천", "꿀팁 정보", "핫이슈 화제",
+    "먹방 맛집", "IT 기술", "경제 투자",
+    "엔터테인먼트 연예",
+]
+_youtube_query_idx = 0
+
+
 async def _collect_youtube() -> tuple[int, int]:
     """YouTube 수집 (API 키 필요)
+
+    매 사이클마다 다른 검색어를 순환하여 다양한 컨텐츠를 수집.
 
     Returns:
         (수집건수, 저장건수)
     """
+    global _youtube_query_idx
     from app.services.collection_service import run_collection
+
+    query = _YOUTUBE_QUERIES[_youtube_query_idx % len(_YOUTUBE_QUERIES)]
+    _youtube_query_idx += 1
+    logger.info("[YouTube] 수집 키워드: '%s'", query)
 
     try:
         result = await asyncio.wait_for(
-            run_collection(source=SOURCE_YOUTUBE, query=""),
+            run_collection(source=SOURCE_YOUTUBE, query=query),
             timeout=60.0,
         )
         return result["collected"], result["saved"]
