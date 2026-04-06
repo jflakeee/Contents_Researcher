@@ -72,6 +72,9 @@ class Content(Base):
     # 조회수
     view_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
+    # 본문 내 이미지 URL 목록 (JSON 배열)
+    image_urls: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+
     # 추가 메타데이터 (JSON)
     # JSON 객체로 저장 (SQLite 호환)
     metadata_: Mapped[dict | None] = mapped_column(

@@ -81,7 +81,36 @@ async def run_collection(
             except Exception as e:
                 logger.warning("[%s] 댓글 수집 실패 (%s): %s", source, item.source_id, e)
 
-        # 4단계: NLP 분석
+        # 4단계: 원본 사이트 상세 수집 (본문, 이미지, 댓글)
+        if source == SOURCE_AGGAG:
+            try:
+                from collector.aggag.detail_fetcher import fetch_detail
+                import asyncio as _aio
+                detail_count = 0
+                for item in items[:20]:  # 최대 20건만 상세 수집 (rate limiting)
+                    try:
+                        detail = await fetch_detail(item.source_url)
+                        if detail.success:
+                            if detail.body and not item.body:
+                                item.body = detail.body
+                            if detail.image_urls:
+                                item.image_urls = detail.image_urls
+                            if detail.comments:
+                                from shared.types import Comment as CComment
+                                item.comments = [
+                                    CComment(author=c["author"], body=c["body"])
+                                    for c in detail.comments
+                                ]
+                                item.comment_count = max(item.comment_count, len(item.comments))
+                            detail_count += 1
+                        await _aio.sleep(0.5)
+                    except Exception as e:
+                        logger.debug("상세 수집 건너뜀 (%s): %s", item.source_id, e)
+                logger.info("[%s] 상세 수집: %d/%d건", source, detail_count, min(len(items), 20))
+            except Exception as e:
+                logger.warning("[%s] 상세 수집 실패: %s", source, e)
+
+        # 5단계: NLP 분석
         logger.info("[%s] NLP 분석 시작: %d건", source, len(items))
         try:
             from analyzer.pipeline import AnalysisPipeline
@@ -241,6 +270,7 @@ async def _save_to_db(items: list[ContentItem]) -> int:
                     body_hash=item.body_hash,
                     keywords=item.keywords,
                     content_type=item.content_type,
+                    image_urls=getattr(item, 'image_urls', None),
                     sentiment=item.sentiment,
                     sentiment_score=item.sentiment_score,
                     importance_score=item.importance_score,

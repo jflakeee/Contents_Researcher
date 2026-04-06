@@ -62,6 +62,8 @@ class ContentItem:
     like_count: int = 0
     # 조회수
     view_count: int = 0
+    # 본문 내 이미지 URL 목록
+    image_urls: List[str] = field(default_factory=list)
     # 댓글 목록
     comments: List[Comment] = field(default_factory=list)
     # 플랫폼별 추가 메타데이터
