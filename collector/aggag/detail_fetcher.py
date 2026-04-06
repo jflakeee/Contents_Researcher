@@ -25,6 +25,7 @@ class DetailResult:
     body: str = ""
     image_urls: List[str] = field(default_factory=list)
     comments: List[dict] = field(default_factory=list)  # [{"author": str, "body": str}]
+    published_at: Optional[str] = None  # 게시물 작성 시간 (ISO 문자열)
     success: bool = False
 
 
@@ -89,30 +90,24 @@ def _parse_theqoo(soup: BeautifulSoup, result: DetailResult) -> None:
     """더쿠 파싱"""
     _extract_body(soup, result, [".xe_content", ".rd_body", ".article-body"])
     _extract_images(soup, result, [".xe_content img", ".rd_body img"])
-    _extract_comments(soup, result, [
-        ".fdb_lst_ul li .xe_content",
-        ".comment_content",
-    ])
+    _extract_comments(soup, result, [".fdb_lst_ul li .xe_content", ".comment_content"])
+    _extract_published_at(soup, result)
 
 
 def _parse_fmkorea(soup: BeautifulSoup, result: DetailResult) -> None:
     """에펨코리아 파싱"""
     _extract_body(soup, result, [".xe_content", ".rd_body"])
     _extract_images(soup, result, [".xe_content img", ".rd_body img"])
-    _extract_comments(soup, result, [
-        ".fdb_lst_ul li .xe_content",
-        ".comment_content",
-    ])
+    _extract_comments(soup, result, [".fdb_lst_ul li .xe_content", ".comment_content"])
+    _extract_published_at(soup, result)
 
 
 def _parse_ruliweb(soup: BeautifulSoup, result: DetailResult) -> None:
     """루리웹 파싱"""
     _extract_body(soup, result, [".view_content", ".board_main_content"])
     _extract_images(soup, result, [".view_content img", ".board_main_content img"])
-    _extract_comments(soup, result, [
-        ".comment_element .text_wrapper",
-        ".comment_view .text",
-    ])
+    _extract_comments(soup, result, [".comment_element .text_wrapper", ".comment_view .text"])
+    _extract_published_at(soup, result)
 
 
 def _parse_ppomppu(soup: BeautifulSoup, result: DetailResult) -> None:
@@ -120,6 +115,7 @@ def _parse_ppomppu(soup: BeautifulSoup, result: DetailResult) -> None:
     _extract_body(soup, result, [".han_proverb", ".board-contents"])
     _extract_images(soup, result, [".han_proverb img", ".board-contents img"])
     _extract_comments(soup, result, [".comment_line .comment"])
+    _extract_published_at(soup, result)
 
 
 def _parse_todayhumor(soup: BeautifulSoup, result: DetailResult) -> None:
@@ -127,6 +123,7 @@ def _parse_todayhumor(soup: BeautifulSoup, result: DetailResult) -> None:
     _extract_body(soup, result, [".viewContent", "#articleContent"])
     _extract_images(soup, result, [".viewContent img", "#articleContent img"])
     _extract_comments(soup, result, [".comment_content", ".memo_content"])
+    _extract_published_at(soup, result)
 
 
 def _parse_instiz(soup: BeautifulSoup, result: DetailResult) -> None:
@@ -134,10 +131,11 @@ def _parse_instiz(soup: BeautifulSoup, result: DetailResult) -> None:
     _extract_body(soup, result, [".memo_content", ".xe_content"])
     _extract_images(soup, result, [".memo_content img", ".xe_content img"])
     _extract_comments(soup, result, [".comment .comment_content"])
+    _extract_published_at(soup, result)
 
 
 def _parse_generic(soup: BeautifulSoup, result: DetailResult) -> None:
-    """범용 파서 (알 수 없는 사이트)"""
+    """범용 파서"""
     _extract_body(soup, result, [
         ".xe_content", ".rd_body", ".view_content", ".article-body",
         ".board-contents", "#content", "article", ".post-content",
@@ -147,10 +145,10 @@ def _parse_generic(soup: BeautifulSoup, result: DetailResult) -> None:
         ".article-body img", "article img",
     ])
     _extract_comments(soup, result, [
-        ".fdb_lst_ul li .xe_content",
-        ".comment_content", ".reply_content",
-        ".cmt_content", ".comment .text",
+        ".fdb_lst_ul li .xe_content", ".comment_content",
+        ".reply_content", ".cmt_content", ".comment .text",
     ])
+    _extract_published_at(soup, result)
 
 
 # === 공통 추출 유틸리티 ===
@@ -207,3 +205,50 @@ def _extract_comments(soup: BeautifulSoup, result: DetailResult, selectors: List
                         "body": text[:500],
                     })
             return  # 첫 매칭 셀렉터에서 댓글을 찾으면 종료
+
+
+def _extract_published_at(soup: BeautifulSoup, result: DetailResult) -> None:
+    """게시물 작성 시간 추출
+
+    meta 태그, time 태그, 날짜 패턴 텍스트에서 추출.
+    """
+    # 1. meta 태그: article:published_time, datePublished
+    for prop in ["article:published_time", "og:article:published_time"]:
+        meta = soup.select_one(f'meta[property="{prop}"]')
+        if meta and meta.get("content"):
+            result.published_at = meta["content"]
+            return
+
+    for name in ["datePublished", "date"]:
+        meta = soup.select_one(f'meta[name="{name}"]')
+        if meta and meta.get("content"):
+            result.published_at = meta["content"]
+            return
+
+    # 2. <time> 태그
+    time_el = soup.select_one("time[datetime]")
+    if time_el and time_el.get("datetime"):
+        result.published_at = time_el["datetime"]
+        return
+
+    # 3. JSON-LD datePublished
+    import json
+    for script in soup.select('script[type="application/ld+json"]'):
+        try:
+            data = json.loads(script.string or "")
+            if isinstance(data, dict) and "datePublished" in data:
+                result.published_at = data["datePublished"]
+                return
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # 4. 텍스트 패턴: "2026-04-05 12:30" 또는 "2026.04.05 12:30"
+    date_selectors = [".date", ".time", ".regdate", ".write_time", ".post-date", ".fr"]
+    for sel in date_selectors:
+        el = soup.select_one(sel)
+        if el:
+            text = el.get_text(strip=True)
+            match = re.search(r'(\d{4}[-./]\d{2}[-./]\d{2}[\s]*\d{2}:\d{2})', text)
+            if match:
+                result.published_at = match.group(1).replace(".", "-").replace("/", "-")
+                return

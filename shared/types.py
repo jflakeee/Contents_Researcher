@@ -68,6 +68,8 @@ class ContentItem:
     comments: List[Comment] = field(default_factory=list)
     # 플랫폼별 추가 메타데이터
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # 게시물 원본 작성 시각
+    published_at: Optional[datetime] = None
     # 수집 시각
     collected_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
 

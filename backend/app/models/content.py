@@ -32,6 +32,11 @@ class Content(Base):
         DateTime(timezone=True), nullable=False
     )
 
+    # 게시물 원본 작성 시각
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # 콘텐츠 출처 (youtube, naver_news, reddit 등)
     source: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
 

@@ -95,6 +95,12 @@ async def run_collection(
                                 item.body = detail.body
                             if detail.image_urls:
                                 item.image_urls = detail.image_urls
+                            if detail.published_at:
+                                try:
+                                    from datetime import datetime as dt
+                                    item.published_at = dt.fromisoformat(detail.published_at.replace("Z", "+00:00"))
+                                except (ValueError, AttributeError):
+                                    pass
                             if detail.comments:
                                 from shared.types import Comment as CComment
                                 item.comments = [
@@ -263,6 +269,7 @@ async def _save_to_db(items: list[ContentItem]) -> int:
 
                 content = Content(
                     collected_at=item.collected_at,
+                    published_at=getattr(item, 'published_at', None),
                     source=item.source,
                     source_url=item.source_url,
                     title=item.title,
