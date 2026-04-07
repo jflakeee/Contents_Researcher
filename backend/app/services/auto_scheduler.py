@@ -197,6 +197,7 @@ async def _collect_youtube() -> tuple[int, int]:
     """YouTube 수집 (API 키 필요)
 
     매 사이클마다 다른 검색어를 순환하여 다양한 컨텐츠를 수집.
+    timeout 발생 시 진행 중인 job을 failed로 마킹한다.
 
     Returns:
         (수집건수, 저장건수)
@@ -209,17 +210,47 @@ async def _collect_youtube() -> tuple[int, int]:
     logger.info("[YouTube] 수집 키워드: '%s'", query)
 
     try:
+        # YouTube는 댓글 + NLP 분석 시간이 길어 300초로 늘림
         result = await asyncio.wait_for(
             run_collection(source=SOURCE_YOUTUBE, query=query),
-            timeout=60.0,
+            timeout=300.0,
         )
         return result["collected"], result["saved"]
     except asyncio.TimeoutError:
         logger.warning("[YouTube] 수집 타임아웃")
+        await _mark_running_jobs_failed(SOURCE_YOUTUBE, "timeout (300s)")
         return 0, 0
     except Exception as e:
         logger.warning("[YouTube] 수집 오류: %s", e)
+        await _mark_running_jobs_failed(SOURCE_YOUTUBE, str(e))
         return 0, 0
+
+
+async def _mark_running_jobs_failed(source: str, reason: str) -> None:
+    """해당 출처의 running 상태 job을 모두 failed로 마킹한다."""
+    try:
+        from app.db.session import async_session_factory
+        from app.models.keyword import CollectionJob
+        from sqlalchemy import update
+        from datetime import datetime, timezone
+
+        if async_session_factory is None:
+            return
+
+        async with async_session_factory() as session:
+            await session.execute(
+                update(CollectionJob)
+                .where(CollectionJob.source == source)
+                .where(CollectionJob.status == "running")
+                .values(
+                    status="failed",
+                    error_message=reason,
+                    completed_at=datetime.now(tz=timezone.utc),
+                )
+            )
+            await session.commit()
+    except Exception as e:
+        logger.warning("[%s] running job 마킹 실패: %s", source, e)
 
 
 def start_auto_scheduler() -> None:
